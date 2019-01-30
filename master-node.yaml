@@ -1,0 +1,111 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: master-node-volumeclaim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: master-contracts-volumeclaim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: master-node
+  name: master-node
+spec:
+  type: LoadBalancer
+  ports:
+    - name: nodemanager
+      port: 22004
+      targetPort: 22004
+      protocol: TCP
+      
+    - name: websocket
+      port: 22005
+      targetPort: 22005
+      protocol: TCP
+  selector:
+    app: master-node
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: master-node
+  labels:
+    app: master-node
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: master-node
+  template:
+    metadata:
+      labels:
+        app: master-node
+    spec:
+      nodeSelector:
+          master: "true"
+        
+      containers:
+        - image: <hosted image url>
+          name: master-node
+          env:
+          - name: podName
+            value: master-node
+        
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+                
+          ports:
+          - containerPort: 22000
+            name: rpc
+          - containerPort: 22001
+            name: whisper
+          - containerPort: 22002
+            name: constellation
+          - containerPort: 22003
+            name: raft
+          - containerPort: 22004
+            name: nodemanager
+          - containerPort: 22005
+            name: websocket
+            
+          args:
+          - /bin/sh
+          - -c
+          - "cp -r tmp/lib home/lib && cp tmp/setup.sh home/ && cp tmp/qm.variables home/ && cd home && ./setup.sh create -n $podName --ip $POD_IP -r 22000 -w 22001 -c 22002 --raft 22003 --nm 22004 --ws 22005 -d"
+          
+          volumeMounts:
+            - name: master-node-persistent-storage
+              mountPath: /home
+            - name: master-contracts-persistent-storage
+              mountPath: /root/quorum-maker/contracts
+  
+      volumes:
+        - name: master-node-persistent-storage
+          persistentVolumeClaim:
+            claimName: master-node-volumeclaim
+        - name: master-contracts-persistent-storage
+          persistentVolumeClaim:
+            claimName: master-contracts-volumeclaim
+
+
+
